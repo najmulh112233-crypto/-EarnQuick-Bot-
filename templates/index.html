@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EarnQuick BD</title>
+    <style>
+        /* CSS স্টাইল আগের কোড থেকে ব্যবহার করুন */
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f0f8ff; color: #333; }
+        .marquee-container { background-color: #ffcc00; color: #333; padding: 5px 0; overflow: hidden; white-space: nowrap; }
+        .card { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); margin: 20px; }
+        .balance-info { font-size: 24px; font-weight: bold; color: #007bff; }
+        /* আরও স্টাইল... */
+    </style>
+    <script src="[MONETAG_TG_SDK_URL]"></script>
+</head>
+<body>
+    
+    <div class="marquee-container">
+        <marquee behavior="scroll" direction="left"><span id="runningHeadline">{{ headline }}</span></marquee>
+    </div>
+
+    <div class="card">
+        <h3>আমার ব্যালেন্স</h3>
+        <p class="balance-info"><span id="currentBalance">...লোড হচ্ছে...</span> পয়েন্ট</p>
+        <p>টাকা: ৳ <span id="currentBdt">0.00</span></p>
+        <p class="task-limit">দৈনিক টাস্ক সীমা: <span id="currentTasks">০</span>/৩০</p>
+    </div>
+    
+    <div class="card" style="background-color: #e6ffe6;">
+        <p>💰 প্রতি রেফারে **২৫০ পয়েন্ট** বোনাস + রেফারকৃতের উপার্জনে **০৫%** কমিশন।</p>
+    </div>
+
+    <div class="card">
+        <h3>বিজ্ঞাপন দেখুন এবং আয় করুন</h3>
+        <p id="adMessage" style="color: red;"></p>
+        <button id="watchAdButton" onclick="watchAdAndGrantReward()">▶️ বিজ্ঞাপন দেখুন</button>
+    </div>
+
+    <div class="card" id="withdrawSection">
+        <h3>টাকা তুলুন (Withdraw)</h3>
+        <p>সর্বনিম্ন উইথড্র: **{{ min_withdraw_points }}** পয়েন্ট (৳ {{ "%.2f"|format(min_withdraw_points / points_per_bdt) }})</p>
+        
+        <label for="withdrawPoints">পয়েন্ট:</label>
+        <input type="number" id="withdrawPoints" placeholder="{{ min_withdraw_points }}" min="{{ min_withdraw_points }}">
+        
+        <label for="paymentMethod">মাধ্যম:</label>
+        <select id="paymentMethod">
+            <option value="bKash">বিকাশ</option>
+            <option value="Nagad">নগদ</option>
+            <option value="Rocket">রকেট</option>
+        </select>
+        
+        <label for="accountNumber">অ্যাকাউন্ট নম্বর:</label>
+        <input type="text" id="accountNumber" placeholder="আপনার নম্বর">
+        
+        <button onclick="requestWithdrawal()">উইথড্র রিকোয়েস্ট পাঠান</button>
+        <p id="withdrawStatus" style="margin-top: 10px;"></p>
+    </div>
+
+
+    <script>
+        document.addEventListener('DOMContentLoaded', loadUserData);
+        const POINTS_PER_BDT = {{ points_per_bdt }};
+        const MIN_WITHDRAW_POINTS = {{ min_withdraw_points }};
+
+        // Monetag SDK কনফিগারেশন
+        const ZONE_ID = 'আপনার_আসল_MONETAG_ZONE_ID';
+        // ধরে নেওয়া হলো createAdHandler গ্লোবালি উপলব্ধ
+        const adHandler = createAdHandler(ZONE_ID); 
+
+        // অন্যান্য ফাংশন (loadUserData, handleAdComplete, watchAdAndGrantReward) 
+        // আগের উত্তরের কোড থেকে ব্যবহার করুন। 
+        // নিশ্চিত করুন যে loadUserData ব্যালেন্সের পাশাপাশি BDT-তেও রূপান্তর করছে।
+        
+        async function loadUserData() {
+            // ... (আগের কোড)
+            if (data.success) {
+                const balance = parseFloat(data.balance);
+                document.getElementById('currentBalance').textContent = Math.round(balance);
+                // BDT ক্যালকুলেশন যোগ করা হয়েছে
+                document.getElementById('currentBdt').textContent = (balance / POINTS_PER_BDT).toFixed(2); 
+                document.getElementById('currentTasks').textContent = data.tasks_completed;
+            } 
+            // ... (আগের কোড)
+        }
+
+        async function requestWithdrawal() {
+            const points = parseInt(document.getElementById('withdrawPoints').value);
+            const method = document.getElementById('paymentMethod').value;
+            const account = document.getElementById('accountNumber').value;
+            const statusElement = document.getElementById('withdrawStatus');
+            
+            // ইনপুট ভ্যালিডেশন
+            if (points < MIN_WITHDRAW_POINTS || isNaN(points)) {
+                statusElement.textContent = `সর্বনিম্ন উইথড্রয়াল সীমা ${MIN_WITHDRAW_POINTS} পয়েন্ট।`;
+                return;
+            }
+            if (!account) {
+                statusElement.textContent = `অ্যাকাউন্ট নম্বর আবশ্যক।`;
+                return;
+            }
+            
+            // API কল
+            try {
+                const response = await fetch('/api/request_withdraw', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: 123, amount_points: points, method: method, account_number: account })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    statusElement.textContent = data.message;
+                    // ব্যালেন্স সফলভাবে কাটা গেলে UI আপডেট করুন
+                    loadUserData(); 
+                } else {
+                    statusElement.textContent = 'ত্রুটি: ' + data.message;
+                }
+            } catch (error) {
+                statusElement.textContent = 'সার্ভার সংযোগে ত্রুটি।';
+            }
+        }
+    </script>
+</body>
+</html>
