@@ -4,15 +4,94 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EarnQuick BD</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;900&display=swap" rel="stylesheet">
+    
     <style>
-        /* CSS স্টাইল আগের কোড থেকে ব্যবহার করুন */
-        body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f0f8ff; color: #333; }
-        .marquee-container { background-color: #ffcc00; color: #333; padding: 5px 0; overflow: hidden; white-space: nowrap; }
-        .card { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); margin: 20px; }
-        .balance-info { font-size: 24px; font-weight: bold; color: #007bff; }
-        /* আরও স্টাইল... */
+        /* --- UPDATED CSS FOR MODERN DESIGN --- */
+        body { 
+            font-family: 'Poppins', sans-serif; 
+            margin: 0; 
+            padding: 0; 
+            background-color: #f7f9fc; /* হালকা ধূসর ব্যাকগ্রাউন্ড */
+            color: #333; 
+        }
+        
+        /* মারকিউ (চলমান হেডলাইন) */
+        .marquee-container { 
+            background-color: #4a00e0; /* উজ্জ্বল বেগুনি */
+            color: white; 
+            padding: 8px 0; 
+            overflow: hidden; 
+            white-space: nowrap; 
+            margin-bottom: 10px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        /* কার্ডের ডিজাইন */
+        .card { 
+            background: white; 
+            padding: 20px; 
+            border-radius: 15px; /* আরও গোল কিনারা */
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1); /* গভীর ছায়া */
+            margin: 10px 20px; 
+            transition: all 0.3s ease;
+        }
+        .card h3 {
+            color: #4a00e0; /* কার্ড হেডিং এ বেগুনি রঙ */
+            border-bottom: 2px solid #eee;
+            padding-bottom: 5px;
+            margin-top: 0;
+        }
+        
+        /* ব্যালেন্স হাইলাইট */
+        .balance-info { 
+            font-size: 38px; 
+            font-weight: 900;
+            color: #28a745; /* সবুজ রঙ (আয়ের প্রতীক) */
+            margin-bottom: 5px; 
+        }
+
+        /* ইনপুট, সিলেক্ট এবং বাটন স্টাইল */
+        input, select, button { 
+            width: 100%; 
+            padding: 12px; 
+            margin-top: 8px; 
+            box-sizing: border-box; 
+            border-radius: 8px; 
+            border: 1px solid #ddd;
+            font-family: 'Poppins', sans-serif; 
+        }
+        
+        /* বিজ্ঞাপন বাটন (হাইলাইট) */
+        button#watchAdButton {
+            padding: 15px 20px;
+            font-size: 18px;
+            font-weight: 700;
+            background: linear-gradient(45deg, #007bff, #00c6ff); /* নীল থেকে হালকা নীল গ্রেডিয়েন্ট */
+            color: white; 
+            cursor: pointer; 
+            border: none; 
+            margin-top: 20px;
+            box-shadow: 0 4px 15px rgba(0, 123, 255, 0.4);
+        }
+        
+        /* উইথড্র বাটন */
+        #withdrawSection button {
+            background: linear-gradient(45deg, #dc3545, #fd7e14); /* লাল-কমলা গ্রেডিয়েন্ট */
+            box-shadow: 0 4px 10px rgba(220, 53, 69, 0.3);
+        }
+
+        /* নিষ্ক্রিয় বাটন */
+        button:disabled { 
+            background-color: #ccc !important; 
+            box-shadow: none;
+            cursor: not-allowed;
+            background: none !important;
+            color: #666;
+        }
     </style>
-    <script src="[MONETAG_TG_SDK_URL]"></script>
+    <script src="[MONETAG_TG_SDK_URL]"></script> 
 </head>
 <body>
     
@@ -21,28 +100,25 @@
     </div>
 
     <div class="card">
-        <h3>আমার ব্যালেন্স</h3>
-        <p class="balance-info"><span id="currentBalance">...লোড হচ্ছে...</span> পয়েন্ট</p>
+        <h3>আমার ব্যালেন্স 💰</h3>
+        <p class="balance-info"><span id="currentBalance">...</span> পয়েন্ট</p>
         <p>টাকা: ৳ <span id="currentBdt">0.00</span></p>
         <p class="task-limit">দৈনিক টাস্ক সীমা: <span id="currentTasks">০</span>/৩০</p>
+        <p style="color: green;">প্রতি বিজ্ঞাপনে: <span id="rewardPoints"></span> পয়েন্ট</p>
     </div>
     
-    <div class="card" style="background-color: #e6ffe6;">
-        <p>💰 প্রতি রেফারে **২৫০ পয়েন্ট** বোনাস + রেফারকৃতের উপার্জনে **০৫%** কমিশন।</p>
-    </div>
-
     <div class="card">
-        <h3>বিজ্ঞাপন দেখুন এবং আয় করুন</h3>
+        <h3>বিজ্ঞাপন দেখুন 📺</h3>
         <p id="adMessage" style="color: red;"></p>
         <button id="watchAdButton" onclick="watchAdAndGrantReward()">▶️ বিজ্ঞাপন দেখুন</button>
     </div>
 
     <div class="card" id="withdrawSection">
-        <h3>টাকা তুলুন (Withdraw)</h3>
-        <p>সর্বনিম্ন উইথড্র: **{{ min_withdraw_points }}** পয়েন্ট (৳ {{ "%.2f"|format(min_withdraw_points / points_per_bdt) }})</p>
+        <h3>টাকা তুলুন (Withdraw) 💸</h3>
+        <p>সর্বনিম্ন উইথড্র: **<span id="minWithdrawPoints"></span>** পয়েন্ট (৳ <span id="minWithdrawBDT"></span>)</p>
         
         <label for="withdrawPoints">পয়েন্ট:</label>
-        <input type="number" id="withdrawPoints" placeholder="{{ min_withdraw_points }}" min="{{ min_withdraw_points }}">
+        <input type="number" id="withdrawPoints" placeholder="সর্বনিম্ন পয়েন্ট দিন" min="" required>
         
         <label for="paymentMethod">মাধ্যম:</label>
         <select id="paymentMethod">
@@ -52,37 +128,88 @@
         </select>
         
         <label for="accountNumber">অ্যাকাউন্ট নম্বর:</label>
-        <input type="text" id="accountNumber" placeholder="আপনার নম্বর">
+        <input type="text" id="accountNumber" placeholder="আপনার নম্বর" required>
         
         <button onclick="requestWithdrawal()">উইথড্র রিকোয়েস্ট পাঠান</button>
         <p id="withdrawStatus" style="margin-top: 10px;"></p>
     </div>
 
-
     <script>
         document.addEventListener('DOMContentLoaded', loadUserData);
+        
+        // Python ব্যাকএন্ড থেকে লোড করা কনফিগারেশন
         const POINTS_PER_BDT = {{ points_per_bdt }};
         const MIN_WITHDRAW_POINTS = {{ min_withdraw_points }};
-
-        // Monetag SDK কনফিগারেশন
-        const ZONE_ID = 'আপনার_আসল_MONETAG_ZONE_ID';
-        // ধরে নেওয়া হলো createAdHandler গ্লোবালি উপলব্ধ
-        const adHandler = createAdHandler(ZONE_ID); 
-
-        // অন্যান্য ফাংশন (loadUserData, handleAdComplete, watchAdAndGrantReward) 
-        // আগের উত্তরের কোড থেকে ব্যবহার করুন। 
-        // নিশ্চিত করুন যে loadUserData ব্যালেন্সের পাশাপাশি BDT-তেও রূপান্তর করছে।
+        const AD_REWARD_POINTS = {{ ad_reward_points }};
+        const ZONE_ID = '{{ monetag_zone_id }}';
         
+        // UI কনফিগারেশন সেট করা
+        document.getElementById('rewardPoints').textContent = AD_REWARD_POINTS;
+        document.getElementById('minWithdrawPoints').textContent = MIN_WITHDRAW_POINTS;
+        document.getElementById('minWithdrawBDT').textContent = (MIN_WITHDRAW_POINTS / POINTS_PER_BDT).toFixed(2);
+        document.getElementById('withdrawPoints').min = MIN_WITHDRAW_POINTS;
+        
+        const adHandler = typeof createAdHandler !== 'undefined' ? createAdHandler(ZONE_ID) : async () => {}; 
+        
+        // --- ফাংশন লজিক ---
+
         async function loadUserData() {
-            // ... (আগের কোড)
-            if (data.success) {
-                const balance = parseFloat(data.balance);
-                document.getElementById('currentBalance').textContent = Math.round(balance);
-                // BDT ক্যালকুলেশন যোগ করা হয়েছে
-                document.getElementById('currentBdt').textContent = (balance / POINTS_PER_BDT).toFixed(2); 
-                document.getElementById('currentTasks').textContent = data.tasks_completed;
-            } 
-            // ... (আগের কোড)
+            // DUMMY ID: PRODUCTION-এ টেলিগ্রাম WebApp.initData থেকে user_id বের করুন
+            const user_id = 123; 
+            
+            try {
+                const response = await fetch(`/api/user_data?user_id=${user_id}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    const balance = parseFloat(data.balance);
+                    document.getElementById('currentBalance').textContent = Math.round(balance);
+                    document.getElementById('currentBdt').textContent = (balance / POINTS_PER_BDT).toFixed(2); 
+                    document.getElementById('currentTasks').textContent = data.tasks_completed;
+                } else {
+                    document.getElementById('adMessage').textContent = data.message;
+                }
+            } catch (error) {
+                document.getElementById('adMessage').textContent = 'ডেটা লোড করতে ব্যর্থ। সার্ভার চেক করুন।';
+            }
+        }
+
+        async function handleAdComplete() {
+            const user_id = 123; 
+            
+            const response = await fetch('/api/watch_ad', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: user_id }) 
+            });
+            return await response.json();
+        }
+
+        async function watchAdAndGrantReward() {
+            const button = document.getElementById('watchAdButton');
+            const messageElement = document.getElementById('adMessage');
+            
+            button.disabled = true;
+            messageElement.textContent = 'বিজ্ঞাপন লোড হচ্ছে...';
+            
+            try {
+                await adHandler(); // Monetag বিজ্ঞাপন লোড
+                messageElement.textContent = 'বিজ্ঞাপন দেখা সফল! পুরস্কার যোগ করা হচ্ছে...';
+                
+                const result = await handleAdComplete();
+                
+                if (result.success) {
+                    messageElement.textContent = result.message + (result.commission_added > 0 ? ` (+${(result.commission_added).toFixed(2)} কমিশন)` : '');
+                    loadUserData(); 
+                } else {
+                    messageElement.textContent = 'ত্রুটি: ' + result.message;
+                }
+                
+            } catch (error) {
+                messageElement.textContent = 'বিজ্ঞাপন ব্যর্থ বা স্কিপ করা হয়েছে।';
+            } finally {
+                button.disabled = false;
+            }
         }
 
         async function requestWithdrawal() {
@@ -91,17 +218,15 @@
             const account = document.getElementById('accountNumber').value;
             const statusElement = document.getElementById('withdrawStatus');
             
-            // ইনপুট ভ্যালিডেশন
             if (points < MIN_WITHDRAW_POINTS || isNaN(points)) {
-                statusElement.textContent = `সর্বনিম্ন উইথড্রয়াল সীমা ${MIN_WITHDRAW_POINTS} পয়েন্ট।`;
+                statusElement.textContent = `❌ সর্বনিম্ন উইথড্রয়াল সীমা ${MIN_WITHDRAW_POINTS} পয়েন্ট।`;
                 return;
             }
             if (!account) {
-                statusElement.textContent = `অ্যাকাউন্ট নম্বর আবশ্যক।`;
+                statusElement.textContent = `❌ অ্যাকাউন্ট নম্বর আবশ্যক।`;
                 return;
             }
             
-            // API কল
             try {
                 const response = await fetch('/api/request_withdraw', {
                     method: 'POST',
@@ -110,15 +235,11 @@
                 });
                 const data = await response.json();
                 
-                if (data.success) {
-                    statusElement.textContent = data.message;
-                    // ব্যালেন্স সফলভাবে কাটা গেলে UI আপডেট করুন
-                    loadUserData(); 
-                } else {
-                    statusElement.textContent = 'ত্রুটি: ' + data.message;
-                }
+                statusElement.textContent = data.success ? `✅ ${data.message}` : `❌ ${data.message}`;
+                if (data.success) loadUserData();
+                
             } catch (error) {
-                statusElement.textContent = 'সার্ভার সংযোগে ত্রুটি।';
+                statusElement.textContent = '❌ সার্ভার সংযোগে ত্রুটি।';
             }
         }
     </script>
