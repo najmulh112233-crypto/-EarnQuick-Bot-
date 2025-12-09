@@ -1,240 +1,177 @@
+# app.py (Updated Backend Logic for Render Deployment)
+
 import os
-import sqlite3
-import json
+from flask import Flask, jsonify, request, render_template
+import psycopg2
+from dotenv import load_dotenv
 import logging
-import datetime
-from telegram import Update, WebAppInfo, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
-from flask import Flask, request, jsonify
-from concurrent.futures import ThreadPoolExecutor
 
-# --- ১. কনফিগারেশন (আপনার দেওয়া তথ্য অনুযায়ী সেট করা হয়েছে) ---
-# গোপনীয়তা বজায় রাখতে এইগুলি Render Environment Variables হিসাবে সেট করা উচিত।
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8320840106:AAF9P0LhVzcvvu-UGxWirLmaRKUm-P2Y9Zw")
-WEB_APP_URL = os.environ.get("WEB_APP_URL", "https://earnquick-bot.onrender.com/") 
-BOT_USERNAME = "@EarnQuick_Official_bot"
-SPONSOR_CHANNEL = "https://t.me/EarnQuickOfficial"
+load_dotenv()
+logging.basicConfig(level=logging.INFO)
 
-# আয়ের নিয়ম
-AD_INCOME = 20.00          # প্রতি বিজ্ঞাপনে পয়েন্ট (পরিবর্তিত)
-DAILY_AD_LIMIT = 300       # দৈনিক বিজ্ঞাপনের সীমা
-REFERRAL_BONUS_TK = 125.00 # রেফারেল বোনাস (টাকায়)
-POINT_TO_TK_RATIO = 5000 / 20  # 5000 পয়েন্ট = 20 টাকা; অর্থাৎ 1 টাকা = 250 পয়েন্ট
+# --- কনফিগারেশন লোড করা ---
+DATABASE_URL = os.environ.get("DATABASE_URL") 
+MONETAG_ZONE_ID = os.environ.get("MONETAG_ZONE_ID", "10070523") # Default Value is set based on your provided tag
 
-# ডেটাবেস কনফিগারেশন
-DB_NAME = 'user_data.db'
+AD_REWARD_POINTS = int(os.environ.get("AD_REWARD_POINTS", 20))
+REFERRAL_COMMISSION_PERCENT = float(os.environ.get("REFERRAL_COMMISSION_PERCENT", 0.05))
+MIN_WITHDRAW_POINTS = int(os.environ.get("MIN_WITHDRAW_POINTS", 5000))
+POINTS_PER_BDT = int(os.environ.get("POINTS_PER_BDT", 250)) 
+RUNNING_HEADLINE = os.environ.get("RUNNING_HEADLINE", "EarnQuick BD is live!")
+MAX_DAILY_TASKS = 30 
 
-# লগিং সেটআপ
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
-logger = logging.getLogger(__name__)
+app = Flask(__name__)
 
-# --- ২. ডেটাবেস ফাংশন ---
-
-def initialize_db():
-    """ডেটাবেস টেবিল তৈরি করে।"""
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            username TEXT,
-            balance REAL DEFAULT 0.00, 
-            daily_ads_seen INTEGER DEFAULT 0,
-            total_referrals INTEGER DEFAULT 0,
-            referred_by INTEGER,
-            last_ad_date TEXT 
-        )
-    ''')
-    conn.commit()
-    conn.close()
-
-def get_user_data(user_id):
-    """ইউজারের ডেটা ফেরত দেয়।"""
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
-    data = c.fetchone()
-    conn.close()
-    return data
-
-def create_user(user_id, username, referred_by=None):
-    """নতুন ইউজার তৈরি করে এবং রেফারেল বোনাস দেয় (যদি থাকে)।"""
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
+# --- ডেটাবেস সংযোগ ---
+def get_db_connection():
+    if not DATABASE_URL:
+        logging.error("DATABASE_URL is not set.")
+        return None
     try:
-        c.execute("INSERT OR IGNORE INTO users VALUES (?, ?, ?, ?, ?, ?, ?)", 
-                  (user_id, username, 0.00, 0, 0, referred_by, str(datetime.date.today())))
-        conn.commit()
+        conn = psycopg2.connect(DATABASE_URL)
+        return conn
+    except Exception as e:
+        logging.error(f"ডাটাবেস সংযোগ ব্যর্থ: {e}")
+        return None
+
+# --- API রুটসমূহ ---
+
+@app.route('/')
+def serve_webapp():
+    """Telegram Web App এর জন্য HTML পরিবেশন।"""
+    return render_template('index.html', 
+        headline=RUNNING_HEADLINE,
+        min_withdraw_points=MIN_WITHDRAW_POINTS,
+        points_per_bdt=POINTS_PER_BDT,
+        ad_reward_points=AD_REWARD_POINTS,
+        monetag_zone_id=MONETAG_ZONE_ID
+    )
+
+@app.route('/api/user_data', methods=['GET'])
+def get_user_data():
+    """ইউজার ব্যালেন্স লোড করে। (NOTE: Production-এ user_id অবশ্যই validate করতে হবে)"""
+    user_id = request.args.get('user_id', 123) 
+    
+    conn = get_db_connection()
+    if conn is None: return jsonify({"error": "ডাটাবেস সংযোগ ব্যর্থ"}), 500
+
+    try:
+        cursor = conn.cursor()
+        # এখানে অবশ্যই নিশ্চিত করুন যে 'users' টেবিলটি ডাটাবেসে তৈরি হয়েছে।
+        cursor.execute("SELECT balance, tasks_completed FROM users WHERE user_id = %s", (user_id,))
+        result = cursor.fetchone()
         
-        # রেফারেল বোনাস লজিক 
-        if referred_by and referred_by != user_id:
-            bonus_points = REFERRAL_BONUS_TK * POINT_TO_TK_RATIO 
-            c.execute("UPDATE users SET balance = balance + ?, total_referrals = total_referrals + 1 WHERE user_id = ?", 
-                      (bonus_points, referred_by))
-            conn.commit()
-            logger.info(f"User {user_id} referred by {referred_by}. Bonus {bonus_points} points granted.")
+        if result:
+            balance, tasks_completed = result
+            return jsonify({
+                "success": True, "balance": balance, "tasks_completed": tasks_completed, "max_tasks": MAX_DAILY_TASKS
+            })
+        else:
+            return jsonify({"success": False, "message": "ইউজার খুঁজে পাওয়া যায়নি। বটটি /start কমান্ড দিয়ে শুরু করুন।"}), 404
             
     except Exception as e:
-        logger.error(f"Error creating user or giving bonus: {e}")
+        logging.error(f"ডাটাবেস ত্রুটি: {e}")
+        return jsonify({"error": "সার্ভার ত্রুটি"}), 500
     finally:
-        conn.close()
+        if conn: conn.close()
 
-def update_user_ad_status(user_id):
-    """বিজ্ঞাপন দেখার পর ব্যালেন্স আপডেট করে।"""
-    today = str(datetime.date.today())
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
+@app.route('/api/watch_ad', methods=['POST'])
+def watch_ad():
+    """বিজ্ঞাপন দেখার পর ব্যালেন্স আপডেট করে + রেফারেল কমিশন যোগ করে।"""
+    user_id = request.json.get('user_id', 123)
     
-    # দৈনিক কাউন্টার রিসেট করা
-    c.execute("UPDATE users SET daily_ads_seen = 0 WHERE user_id = ? AND last_ad_date != ?", (user_id, today))
-    conn.commit()
+    conn = get_db_connection()
+    if conn is None: return jsonify({"error": "ডাটাবেস সংযোগ ব্যর্থ"}), 500
 
-    c.execute("SELECT daily_ads_seen FROM users WHERE user_id = ?", (user_id,))
-    ads_seen = c.fetchone()[0]
-
-    if ads_seen < DAILY_AD_LIMIT:
-        c.execute("UPDATE users SET balance = balance + ?, daily_ads_seen = daily_ads_seen + 1, last_ad_date = ? WHERE user_id = ?", 
-                  (AD_INCOME, today, user_id))
-        conn.commit()
-        conn.close()
-        return True, ads_seen + 1
-    else:
-        conn.close()
-        return False, ads_seen
-
-# --- ৩. টেলিগ্রাম হ্যান্ডলার্স ---
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/start কমান্ড হ্যান্ডেল করে।"""
-    user = update.effective_user
-    username = user.username if user.username else user.first_name
-    
-    referred_by = None
-    if context.args:
-        try:
-            referred_by = int(context.args[0])
-            if referred_by == user.id: 
-                 referred_by = None
-        except ValueError:
-            pass 
-
-    if not get_user_data(user.id):
-        create_user(user.id, username, referred_by)
-
-    # মিনি অ্যাপ বাটন
-    web_app_button = InlineKeyboardButton(
-        text="💰 ইনকাম শুরু করুন 💰",
-        web_app=WebAppInfo(url=WEB_APP_URL)
-    )
-    
-    keyboard = InlineKeyboardMarkup([
-        [web_app_button],
-        [InlineKeyboardButton("🔗 স্পন্সর চ্যানেল", url=SPONSOR_CHANNEL)]
-    ])
-
-    await update.message.reply_html(
-        f"✅ স্বাগতম **{user.first_name}**!\n\n"
-        f"নিচের **ইনকাম শুরু করুন** বাটন থেকে Mini App খুলুন এবং দৈনিক বিজ্ঞাপন দেখে পয়েন্ট আয় করুন।\n\n"
-        f"**পয়েন্ট রেট:** {int(POINT_TO_TK_RATIO)} পয়েন্ট = ১ টাকা।",
-        reply_markup=keyboard
-    )
-
-async def handle_mini_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """মিনি অ্যাপ থেকে বিজ্ঞাপন দেখার ডেটা হ্যান্ডেল করা।"""
-    user_id = update.effective_user.id
     try:
-        data = json.loads(update.message.web_app_data.data)
+        cursor = conn.cursor()
+        cursor.execute("SELECT tasks_completed, referrer_id FROM users WHERE user_id = %s", (user_id,))
+        user_info = cursor.fetchone()
         
-        if data.get("action") == "ad_completed":
-            success, ads_seen = update_user_ad_status(user_id)
+        if not user_info or user_info[0] >= MAX_DAILY_TASKS: 
+            return jsonify({"success": False, "message": "দৈনিক টাস্ক সীমা অতিক্রম করেছে বা ইউজার ডেটা নেই"}), 400
             
-            if success:
-                await update.message.reply_text(
-                    f"🎉 সফল! আপনি {AD_INCOME:.2f} পয়েন্ট আয় করেছেন।\n"
-                    f"আজকের বিজ্ঞাপন দেখা হয়েছে: {ads_seen}/{DAILY_AD_LIMIT}"
-                )
-            else:
-                await update.message.reply_text(
-                    f"⚠️ দুঃখিত! আজকের জন্য আপনার {DAILY_AD_LIMIT}টি বিজ্ঞাপনের কোটা পূর্ণ হয়েছে। আগামীকাল আবার চেষ্টা করুন।"
-                )
+        referrer_id = user_info[1]
+        
+        # ব্যালেন্স এবং টাস্ক সংখ্যা আপডেট করা
+        cursor.execute("""
+            UPDATE users SET balance = balance + %s, tasks_completed = tasks_completed + 1
+            WHERE user_id = %s 
+            RETURNING balance, tasks_completed
+        """, (AD_REWARD_POINTS, user_id))
+        
+        new_balance, new_tasks = cursor.fetchone()
+        
+        # রেফারেল কমিশন যোগ করা
+        commission = 0
+        if referrer_id:
+            commission = AD_REWARD_POINTS * REFERRAL_COMMISSION_PERCENT
+            cursor.execute("""
+                UPDATE users SET balance = balance + %s 
+                WHERE user_id = %s
+            """, (commission, referrer_id))
+            
+        conn.commit()
+        
+        return jsonify({
+            "success": True, "message": f"বিজ্ঞাপন সফল! {AD_REWARD_POINTS} পয়েন্ট যোগ করা হয়েছে।", 
+            "new_balance": new_balance, "new_tasks": new_tasks, "commission_added": commission
+        })
         
     except Exception as e:
-        logger.error(f"Error handling mini app data: {e}")
-        await update.message.reply_text("ডেটা প্রসেস করতে ত্রুটি হয়েছে।")
+        conn.rollback()
+        logging.error(f"ট্রানজেকশন ত্রুটি: {e}")
+        return jsonify({"error": "ডাটাবেস আপডেট ব্যর্থ"}), 500
+    finally:
+        if conn: conn.close()
 
-
-# --- ৪. ফ্লাস্ক ওয়েব সার্ভার এবং ওয়েবুক সেটআপ ---
-
-flask_app = Flask(__name__)
-PORT = int(os.environ.get('PORT', 5000))
-
-@flask_app.route('/webhook', methods=['POST'])
-async def webhook_handler():
-    """টেলিগ্রাম থেকে আসা ওয়েবুক অনুরোধ হ্যান্ডেল করে।"""
-    if request.method == "POST":
-        update = Update.de_json(request.get_json(force=True), application.bot)
-        executor.submit(lambda: application.update_queue.put_nowait(update))
-        return "ok"
-    return "ok"
-
-@flask_app.route('/data', methods=['GET'])
-def get_dashboard_data():
-    """মিনি অ্যাপের জন্য ড্যাশবোর্ডের ডেটা JSON ফরম্যাটে সরবরাহ করে।"""
-    user_id = request.args.get('user_id')
-    if not user_id:
-        return jsonify({"error": "User ID required"}), 400
+@app.route('/api/request_withdraw', methods=['POST'])
+def request_withdraw():
+    """উইথড্রয়াল রিকোয়েস্ট জমা দেয়।"""
+    data = request.json
+    user_id = data.get('user_id', 123)
+    amount_points = data.get('amount_points')
+    method = data.get('method')
+    account_number = data.get('account_number')
     
-    data = get_user_data(int(user_id))
-    if not data:
-        # যদি ইউজার না থাকে, তবে একটি ইনিশিয়াল ডেটা ফেরত দিন
+    if amount_points < MIN_WITHDRAW_POINTS:
+        return jsonify({"success": False, "message": f"সর্বনিম্ন উইথড্র {MIN_WITHDRAW_POINTS} পয়েন্ট।"}), 400
+        
+    conn = get_db_connection()
+    if conn is None: return jsonify({"error": "ডাটাবেস সংযোগ ব্যর্থ"}), 500
+    
+    try:
+        cursor = conn.cursor()
+        # ১. ব্যালেন্স চেক করা
+        cursor.execute("SELECT balance FROM users WHERE user_id = %s", (user_id,))
+        current_balance = cursor.fetchone()[0]
+        
+        if current_balance < amount_points:
+             return jsonify({"success": False, "message": "অপর্যাপ্ত ব্যালেন্স।"}), 400
+        
+        amount_bdt = amount_points / POINTS_PER_BDT
+        
+        # ২. ব্যালেন্স থেকে পয়েন্ট কেটে নেওয়া
+        cursor.execute("UPDATE users SET balance = balance - %s WHERE user_id = %s", (amount_points, user_id))
+
+        # ৩. উইথড্রয়াল রিকোয়েস্ট সেভ করা
+        cursor.execute("""
+            INSERT INTO withdraw_requests (user_id, amount_points, amount_bdt, method, account_number)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (user_id, amount_points, amount_bdt, method, account_number))
+        
+        conn.commit()
+        
         return jsonify({
-            "user_id": int(user_id),
-            "balance": "0.00",
-            "daily_ads_seen": 0,
-            "total_referrals": 0,
-            "daily_ad_limit": DAILY_AD_LIMIT,
-            "ad_income": AD_INCOME,
-            "referral_bonus_tk": REFERRAL_BONUS_TK
+            "success": True, 
+            "message": f"উইথড্রয়াল রিকোয়েস্ট জমা দেওয়া হয়েছে! আপনি {amount_bdt:.2f} টাকা পাবেন।",
         })
+    except Exception as e:
+        conn.rollback()
+        logging.error(f"উইথড্রয়াল ত্রুটি: {e}")
+        return jsonify({"error": "উইথড্র রিকোয়েস্ট জমা দেওয়া ব্যর্থ"}), 500
+    finally:
+        if conn: conn.close()
 
-    balance_in_points = data[2]
-    
-    user_data = {
-        "user_id": data[0],
-        "balance": f"{balance_in_points:.2f}", # পয়েন্টে ব্যালেন্স
-        "daily_ads_seen": data[3],
-        "total_referrals": data[4],
-        "daily_ad_limit": DAILY_AD_LIMIT,
-        "ad_income": AD_INCOME,
-        "referral_bonus_tk": REFERRAL_BONUS_TK
-    }
-    return jsonify(user_data)
-
-
-# টেলিগ্রাম বট সেটআপ
-application = Application.builder().token(BOT_TOKEN).updater(None).build()
-application.add_handler(CommandHandler("start", start))
-application.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_mini_app_data))
-
-# থ্রেড পুল ইনিশিয়ালাইজ করা
-executor = ThreadPoolExecutor(max_workers=4)
-
-# Render-এর জন্য Gunicorn/Flask অ্যাপ
-app = flask_app
-
-# --- ৫. ইনিশিয়ালাইজেশন ---
-@flask_app.before_request
-def before_request_check():
-    """প্রতিটি অনুরোধের আগে ডেটাবেস ইনিশিয়ালাইজেশন নিশ্চিত করে।"""
-    if not os.path.exists(DB_NAME):
-        initialize_db()
-
-# অ্যাপ চালু হওয়ার পর ওয়েবুক সেট করা
-def setup_webhook():
-    webhook_url = f"{WEB_APP_URL}webhook"
-    application.bot.set_webhook(url=webhook_url)
-    logger.info(f"Webhook set to: {webhook_url}")
-
-if os.environ.get("RENDER"):
-    with application:
-        setup_webhook()
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=os.environ.get('PORT', 5000))
