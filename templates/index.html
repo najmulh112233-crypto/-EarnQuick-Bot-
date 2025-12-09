@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EarnQuick BD</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;900&display=swap" rel="stylesheet">
+    
+    <style>
+        /* (এখানে আপনার উন্নত CSS স্টাইল থাকবে - যা পূর্বের উত্তরে দেওয়া হয়েছে) */
+        /* --- CSS স্টাইল --- */
+        body { font-family: 'Poppins', sans-serif; margin: 0; padding: 0; background-color: #f7f9fc; color: #333; }
+        .marquee-container { background-color: #4a00e0; color: white; padding: 8px 0; overflow: hidden; white-space: nowrap; margin-bottom: 10px; font-size: 14px; font-weight: 600; }
+        .card { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1); margin: 10px 20px; transition: all 0.3s ease; }
+        .card h3 { color: #4a00e0; border-bottom: 2px solid #eee; padding-bottom: 5px; margin-top: 0; }
+        .balance-info { font-size: 38px; font-weight: 900; color: #28a745; margin-bottom: 5px; }
+        input, select, button { width: 100%; padding: 12px; margin-top: 8px; box-sizing: border-box; border-radius: 8px; border: 1px solid #ddd; font-family: 'Poppins', sans-serif; }
+        button#watchAdButton { padding: 15px 20px; font-size: 18px; font-weight: 700; background: linear-gradient(45deg, #007bff, #00c6ff); color: white; cursor: pointer; border: none; margin-top: 20px; box-shadow: 0 4px 15px rgba(0, 123, 255, 0.4); }
+        #withdrawSection button { background: linear-gradient(45deg, #dc3545, #fd7e14); box-shadow: 0 4px 10px rgba(220, 53, 69, 0.3); }
+        button:disabled { background-color: #ccc !important; box-shadow: none; cursor: not-allowed; background: none !important; color: #666;}
+        /* --- CSS স্টাইল শেষ --- */
+    </style>
+    
+    <script src='//libtl.com/sdk.js' data-zone='{{ monetag_zone_id }}' data-sdk='show_{{ monetag_zone_id }}'></script>
+</head>
+<body>
+    
+    <div class="marquee-container">
+        <marquee behavior="scroll" direction="left"><span id="runningHeadline">{{ headline }}</span></marquee>
+    </div>
+
+    <div class="card">
+        <h3>আমার ব্যালেন্স 💰</h3>
+        <p class="balance-info"><span id="currentBalance">...</span> পয়েন্ট</p>
+        <p>টাকা: ৳ <span id="currentBdt">0.00</span></p>
+        <p class="task-limit">দৈনিক টাস্ক সীমা: <span id="currentTasks">০</span>/৩০</p>
+        <p style="color: green;">প্রতি বিজ্ঞাপনে: <span id="rewardPoints"></span> পয়েন্ট</p>
+    </div>
+    
+    <div class="card">
+        <h3>বিজ্ঞাপন দেখুন 📺</h3>
+        <p id="adMessage" style="color: red;"></p>
+        <button id="watchAdButton" onclick="watchAdAndGrantReward()">▶️ বিজ্ঞাপন দেখুন</button>
+    </div>
+
+    <div class="card" id="withdrawSection">
+        <h3>টাকা তুলুন (Withdraw) 💸</h3>
+        <p>সর্বনিম্ন উইথড্র: **<span id="minWithdrawPoints"></span>** পয়েন্ট (৳ <span id="minWithdrawBDT"></span>)</p>
+        
+        <label for="withdrawPoints">পয়েন্ট:</label>
+        <input type="number" id="withdrawPoints" placeholder="সর্বনিম্ন পয়েন্ট দিন" min="" required>
+        
+        <label for="paymentMethod">মাধ্যম:</label>
+        <select id="paymentMethod">
+            <option value="bKash">বিকাশ</option>
+            <option value="Nagad">নগদ</option>
+            <option value="Rocket">রকেট</option>
+        </select>
+        
+        <label for="accountNumber">অ্যাকাউন্ট নম্বর:</label>
+        <input type="text" id="accountNumber" placeholder="আপনার নম্বর" required>
+        
+        <button onclick="requestWithdrawal()">উইথড্র রিকোয়েস্ট পাঠান</button>
+        <p id="withdrawStatus" style="margin-top: 10px;"></p>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', loadUserData);
+        
+        // Python ব্যাকএন্ড থেকে লোড করা কনফিগারেশন
+        const POINTS_PER_BDT = {{ points_per_bdt }};
+        const MIN_WITHDRAW_POINTS = {{ min_withdraw_points }};
+        const AD_REWARD_POINTS = {{ ad_reward_points }};
+        const ZONE_ID = '{{ monetag_zone_id }}';
+        
+        // --- ইউজার আইডি হ্যান্ডলিং (Monetag ত্রুটির জন্য অপরিহার্য) ---
+        let user_id = 123; // Fallback ID 
+        if (typeof Telegram !== 'undefined' && Telegram.WebApp.initDataUnsafe.user) {
+            user_id = Telegram.WebApp.initDataUnsafe.user.id;
+        }
+
+        // UI কনফিগারেশন সেট করা
+        document.getElementById('rewardPoints').textContent = AD_REWARD_POINTS;
+        document.getElementById('minWithdrawPoints').textContent = MIN_WITHDRAW_POINTS;
+        document.getElementById('minWithdrawBDT').textContent = (MIN_WITHDRAW_POINTS / POINTS_PER_BDT).toFixed(2);
+        document.getElementById('withdrawPoints').min = MIN_WITHDRAW_POINTS;
+        
+        // Monetag Ad Handler Lgoc
+        // যদি Monetag SDK লোড না হয় (যেমন adHandler ফাংশন undefined হয়), 
+        // তবে এটি ত্রুটি এড়াতে একটি ডামি ফাংশন ব্যবহার করবে।
+        const adHandler = typeof createAdHandler === 'function' ? createAdHandler(ZONE_ID) : async () => { 
+            console.warn("Monetag SDK (createAdHandler) not found, using dummy ad handler.");
+            await new Promise(resolve => setTimeout(resolve, 1000)); // 1s wait simulation
+        }; 
+        
+        // --- ফাংশন লজিক ---
+
+        async function loadUserData() {
+            try {
+                const response = await fetch(`/api/user_data?user_id=${user_id}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    const balance = parseFloat(data.balance);
+                    document.getElementById('currentBalance').textContent = Math.round(balance);
+                    document.getElementById('currentBdt').textContent = (balance / POINTS_PER_BDT).toFixed(2); 
+                    document.getElementById('currentTasks').textContent = data.tasks_completed;
+                } else {
+                    // ডাটাবেসে ইউজার না থাকলে বা ত্রুটি হলে মেসেজ দেখাবে
+                    document.getElementById('adMessage').textContent = '⚠️ ' + data.message;
+                }
+            } catch (error) {
+                document.getElementById('adMessage').textContent = '❌ সার্ভার সংযোগ বা ডেটা লোড করতে ব্যর্থ।';
+            }
+        }
+
+        async function handleAdComplete() {
+            const response = await fetch('/api/watch_ad', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: user_id }) 
+            });
+            return await response.json();
+        }
+
+        async function watchAdAndGrantReward() {
+            const button = document.getElementById('watchAdButton');
+            const messageElement = document.getElementById('adMessage');
+            
+            button.disabled = true;
+            messageElement.textContent = 'বিজ্ঞাপন লোড হচ্ছে... অনুগ্রহ করে অপেক্ষা করুন।';
+            
+            try {
+                // adHandler কল
+                await adHandler(); 
+                messageElement.textContent = 'বিজ্ঞাপন দেখা সফল! পুরস্কার যোগ করা হচ্ছে...';
+                
+                const result = await handleAdComplete();
+                
+                if (result.success) {
+                    messageElement.textContent = result.message + (result.commission_added > 0 ? ` (+${(result.commission_added).toFixed(2)} কমিশন)` : '');
+                    loadUserData(); 
+                } else {
+                    messageElement.textContent = 'ত্রুটি: ' + result.message;
+                }
+                
+            } catch (error) {
+                messageElement.textContent = '❌ বিজ্ঞাপন ব্যর্থ বা স্কিপ করা হয়েছে।';
+            } finally {
+                button.disabled = false;
+            }
+        }
+
+        async function requestWithdrawal() {
+            const points = parseInt(document.getElementById('withdrawPoints').value);
+            const method = document.getElementById('paymentMethod').value;
+            const account = document.getElementById('accountNumber').value;
+            const statusElement = document.getElementById('withdrawStatus');
+            
+            if (points < MIN_WITHDRAW_POINTS || isNaN(points)) {
+                statusElement.textContent = `❌ সর্বনিম্ন উইথড্রয়াল সীমা ${MIN_WITHDRAW_POINTS} পয়েন্ট।`;
+                return;
+            }
+            if (!account) {
+                statusElement.textContent = `❌ অ্যাকাউন্ট নম্বর আবশ্যক।`;
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/request_withdraw', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: user_id, amount_points: points, method: method, account_number: account })
+                });
+                const data = await response.json();
+                
+                statusElement.textContent = data.success ? `✅ ${data.message}` : `❌ ${data.message}`;
+                if (data.success) loadUserData();
+                
+            } catch (error) {
+                statusElement.textContent = '❌ সার্ভার সংযোগে ত্রুটি।';
+            }
+        }
+    </script>
+</body>
+</html>
